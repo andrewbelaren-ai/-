@@ -6,9 +6,8 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 # --- КОНФИГУРАЦИЯ ---
-API_TOKEN = '8641739870:AAFDcXh2mBnslqkb3usC80u7nEUJx1njkoI'  # <-- Вставьте токен сюда
+API_TOKEN = '8641739870:AAFDcXh2mBnslqkb3usC80u7nEUJx1njkoI'  # <-- Вставьте токен
 
-# Названия месяцев и количество дней
 AURELIA_CALENDAR = [
     {"name": "Хлад", "days": 31, "season": "Сезон Застывших Вод"},
     {"name": "Вьюг", "days": 28, "season": "Сезон Застывших Вод"},
@@ -23,14 +22,7 @@ AURELIA_CALENDAR = [
     {"name": "Иней", "days": 31, "season": "Сезон Угасания"},
 ]
 
-# Расчет скорости времени
-# 1 игровой месяц = 2 реальных дня (48 часов)
-# Средний месяц ~30.7 дней.
-# 48 часов * 3600 секунд / 30.7 = ~5628 секунд на 1 игровой день.
-# Для тестов ставьте число ниже (например, 10 секунд).
-SECONDS_PER_GAME_DAY = 0.5
-
-# Файл для сохранения прогресса
+SECONDS_PER_GAME_DAY = 5628 
 DB_FILE = "calendar_data.json"
 
 # --- ЛОГИКА ---
@@ -41,11 +33,12 @@ dp = Dispatcher()
 
 # Глобальное состояние
 state = {
-    "year": 2061,   # <--- ИЗМЕНЕНО: Стартовый год 2061
-    "month_idx": 0, # 0 = Хлад
+    "year": 2061,
+    "month_idx": 0, 
     "day": 1,
     "running": False,
-    "channel_id": None
+    "channel_id": None,
+    "thread_id": None  # <--- Добавили поддержку ТЕМ (Topics)
 }
 
 def load_data():
@@ -53,7 +46,6 @@ def load_data():
     try:
         with open(DB_FILE, "r") as f:
             saved_data = json.load(f)
-            # Обновляем состояние, если файл существует
             state.update(saved_data)
     except FileNotFoundError:
         save_data()
@@ -68,7 +60,6 @@ def get_current_date_str():
             f"🍂 {month_info['season']}\n"
             f"📜 Год: {state['year']}")
 
-# Клавиатура управления
 def get_admin_keyboard():
     status = "🟢 ИДЕТ" if state["running"] else "🔴 СТОП"
     kb = [
@@ -77,57 +68,56 @@ def get_admin_keyboard():
             InlineKeyboardButton(text="▶️ Старт", callback_data="cmd_start_time"),
             InlineKeyboardButton(text="⏸ Стоп", callback_data="cmd_stop_time")
         ],
-        [InlineKeyboardButton(text="📢 Назначить этот канал", callback_data="cmd_set_channel")],
+        [InlineKeyboardButton(text="📢 Назначить ЭТОТ чат/тему", callback_data="cmd_set_channel")],
         [InlineKeyboardButton(text="⏩ +1 день", callback_data="cmd_skip_day")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-# --- ФУНКЦИЯ ВРЕМЕНИ (ФОНОВАЯ ЗАДАЧА) ---
+# --- ЦИКЛ ВРЕМЕНИ ---
 
 async def time_loop():
     while True:
         if state["running"]:
             await asyncio.sleep(SECONDS_PER_GAME_DAY)
-            
-            # Если бот все еще запущен после паузы
             if state["running"]:
                 await advance_day()
         else:
-            await asyncio.sleep(5) # Просто ждем, если таймер на паузе
+            await asyncio.sleep(5)
 
 async def advance_day():
     month_info = AURELIA_CALENDAR[state["month_idx"]]
-    
     state["day"] += 1
     
-    # Проверка конца месяца
     if state["day"] > month_info["days"]:
         state["day"] = 1
         state["month_idx"] += 1
-        
-        # Проверка конца года
         if state["month_idx"] >= len(AURELIA_CALENDAR):
             state["month_idx"] = 0
             state["year"] += 1
             
     save_data()
     
-    # Отправка уведомления в канал
+    # Отправка уведомления (теперь с поддержкой thread_id)
     if state["channel_id"]:
         try:
             current_month = AURELIA_CALENDAR[state['month_idx']]
             msg = (f"🌅 **Новый день в Аурелии!**\n\n"
                    f"📅 {state['day']} {current_month['name']}, {state['year']} год\n"
                    f"_{current_month['season']}_")
-            await bot.send_message(state["channel_id"], msg, parse_mode="Markdown")
+            
+            # Если сохранена тема, отправляем в неё, иначе просто в чат
+            if state.get("thread_id"):
+                await bot.send_message(state["channel_id"], msg, message_thread_id=state["thread_id"], parse_mode="Markdown")
+            else:
+                await bot.send_message(state["channel_id"], msg, parse_mode="Markdown")
+                
         except Exception as e:
-            logging.error(f"Не удалось отправить сообщение в канал: {e}")
+            logging.error(f"Ошибка отправки: {e}")
 
-# --- ОБРАБОТЧИКИ TELEGRAM ---
+# --- ОБРАБОТЧИКИ ---
 
 @dp.message(Command("panel"))
 async def cmd_panel(message: types.Message):
-    # Команда для вызова панели управления
     await message.answer(
         f"⚙️ **Календарь Аурелии**\n\n{get_current_date_str()}", 
         reply_markup=get_admin_keyboard(),
@@ -143,7 +133,7 @@ async def btn_start(callback: CallbackQuery):
         reply_markup=get_admin_keyboard(),
         parse_mode="Markdown"
     )
-    await callback.answer("Время запущено!")
+    await callback.answer("Время пошло!")
 
 @dp.callback_query(F.data == "cmd_stop_time")
 async def btn_stop(callback: CallbackQuery):
@@ -154,25 +144,34 @@ async def btn_stop(callback: CallbackQuery):
         reply_markup=get_admin_keyboard(),
         parse_mode="Markdown"
     )
-    await callback.answer("Время остановлено.")
+    await callback.answer("Пауза.")
 
 @dp.callback_query(F.data == "cmd_set_channel")
 async def btn_set_channel(callback: CallbackQuery):
+    # Сохраняем ID чата
     state["channel_id"] = callback.message.chat.id
+    # Сохраняем ID темы (если это форум)
+    state["thread_id"] = callback.message.message_thread_id
+    
     save_data()
-    await callback.answer("Канал привязан!")
-    await bot.send_message(callback.message.chat.id, "✅ Канал установлен для уведомлений о датах.")
+    await callback.answer("Канал и тема привязаны!")
+    
+    # Проверка отправки
+    msg_text = "✅ Даты будут приходить сюда."
+    if state["thread_id"]:
+        await bot.send_message(state["channel_id"], msg_text, message_thread_id=state["thread_id"])
+    else:
+        await bot.send_message(state["channel_id"], msg_text)
 
 @dp.callback_query(F.data == "cmd_skip_day")
 async def btn_skip(callback: CallbackQuery):
     await advance_day()
-    # Обновляем текст сообщения
     await callback.message.edit_text(
         f"⚙️ **Календарь Аурелии**\n\n{get_current_date_str()}",
         reply_markup=get_admin_keyboard(),
         parse_mode="Markdown"
     )
-    await callback.answer("День пропущен вручную.")
+    await callback.answer("День пропущен.")
 
 @dp.callback_query(F.data == "ignore")
 async def btn_ignore(callback: CallbackQuery):
@@ -180,7 +179,6 @@ async def btn_ignore(callback: CallbackQuery):
 
 async def main():
     load_data()
-    # Запускаем цикл времени параллельно с ботом
     asyncio.create_task(time_loop())
     await dp.start_polling(bot)
 
