@@ -22,7 +22,8 @@ AURELIA_CALENDAR = [
     {"name": "Иней", "days": 31, "season": "Сезон Угасания"},
 ]
 
-SECONDS_PER_GAME_DAY = 5628 
+# 5 реальных дней (432 000 сек) делим на 338 игровых дней
+SECONDS_PER_GAME_DAY = 432000 / 338 
 DB_FILE = "calendar_data.json"
 
 # --- ЛОГИКА ---
@@ -38,7 +39,7 @@ state = {
     "day": 1,
     "running": False,
     "channel_id": None,
-    "thread_id": None  # <--- Добавили поддержку ТЕМ (Topics)
+    "thread_id": None  # <--- Поддержка ТЕМ (Topics)
 }
 
 def load_data():
@@ -60,6 +61,21 @@ def get_current_date_str():
             f"🍂 {month_info['season']}\n"
             f"📜 Год: {state['year']}")
 
+def get_time_left_str():
+    # Считаем сколько дней в году всего и сколько уже прошло
+    total_days_in_year = sum(m["days"] for m in AURELIA_CALENDAR)
+    days_passed = sum(AURELIA_CALENDAR[i]["days"] for i in range(state["month_idx"])) + state["day"]
+    days_left = total_days_in_year - days_passed
+    
+    # Переводим оставшиеся игровые дни в реальные секунды
+    seconds_left = days_left * SECONDS_PER_GAME_DAY
+    
+    real_days = int(seconds_left // 86400)
+    real_hours = int((seconds_left % 86400) // 3600)
+    real_minutes = int((seconds_left % 3600) // 60)
+    
+    return f"⏳ До смены года:\n{real_days} дн. {real_hours} ч. {real_minutes} мин."
+
 def get_admin_keyboard():
     status = "🟢 ИДЕТ" if state["running"] else "🔴 СТОП"
     kb = [
@@ -69,7 +85,8 @@ def get_admin_keyboard():
             InlineKeyboardButton(text="⏸ Стоп", callback_data="cmd_stop_time")
         ],
         [InlineKeyboardButton(text="📢 Назначить ЭТОТ чат/тему", callback_data="cmd_set_channel")],
-        [InlineKeyboardButton(text="⏩ +1 день", callback_data="cmd_skip_day")]
+        [InlineKeyboardButton(text="⏩ +1 день", callback_data="cmd_skip_day")],
+        [InlineKeyboardButton(text="⏳ Сколько до Нового Года?", callback_data="cmd_time_left")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -97,7 +114,7 @@ async def advance_day():
             
     save_data()
     
-    # Отправка уведомления (теперь с поддержкой thread_id)
+    # Отправка уведомления
     if state["channel_id"]:
         try:
             current_month = AURELIA_CALENDAR[state['month_idx']]
@@ -105,7 +122,6 @@ async def advance_day():
                    f"📅 {state['day']} {current_month['name']}, {state['year']} год\n"
                    f"_{current_month['season']}_")
             
-            # Если сохранена тема, отправляем в неё, иначе просто в чат
             if state.get("thread_id"):
                 await bot.send_message(state["channel_id"], msg, message_thread_id=state["thread_id"], parse_mode="Markdown")
             else:
@@ -148,15 +164,12 @@ async def btn_stop(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "cmd_set_channel")
 async def btn_set_channel(callback: CallbackQuery):
-    # Сохраняем ID чата
     state["channel_id"] = callback.message.chat.id
-    # Сохраняем ID темы (если это форум)
     state["thread_id"] = callback.message.message_thread_id
     
     save_data()
     await callback.answer("Канал и тема привязаны!")
     
-    # Проверка отправки
     msg_text = "✅ Даты будут приходить сюда."
     if state["thread_id"]:
         await bot.send_message(state["channel_id"], msg_text, message_thread_id=state["thread_id"])
@@ -172,6 +185,11 @@ async def btn_skip(callback: CallbackQuery):
         parse_mode="Markdown"
     )
     await callback.answer("День пропущен.")
+
+@dp.callback_query(F.data == "cmd_time_left")
+async def btn_time_left(callback: CallbackQuery):
+    # Показываем уведомление (alert) с оставшимся временем
+    await callback.answer(get_time_left_str(), show_alert=True)
 
 @dp.callback_query(F.data == "ignore")
 async def btn_ignore(callback: CallbackQuery):
