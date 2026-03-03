@@ -23,7 +23,7 @@ AURELIA_CALENDAR = [
 ]
 
 # 5 реальных дней (432 000 сек) делим на 338 игровых дней
-SECONDS_PER_GAME_DAY = 1 / 338 
+SECONDS_PER_GAME_DAY = 1000 / 338 
 DB_FILE = "calendar_data.json"
 
 # --- ЛОГИКА ---
@@ -34,7 +34,7 @@ dp = Dispatcher()
 
 # Глобальное состояние
 state = {
-    "year": 2061,
+    "year": 2062,
     "month_idx": 0, 
     "day": 1,
     "running": False,
@@ -118,7 +118,7 @@ async def advance_day():
     if state["channel_id"]:
         try:
             current_month = AURELIA_CALENDAR[state['month_idx']]
-            msg = (f"❤️ **Новый пенис в Аурелии!**\n\n"
+            msg = (f"📌 **Новый день в Аурелии!**\n\n"
                    f"📅 {state['day']} {current_month['name']}, {state['year']} год\n"
                    f"_{current_month['season']}_")
             
