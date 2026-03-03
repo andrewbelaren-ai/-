@@ -23,7 +23,7 @@ AURELIA_CALENDAR = [
 ]
 
 # 5 реальных дней (432 000 сек) делим на 338 игровых дней
-SECONDS_PER_GAME_DAY = 1000 / 338 
+SECONDS_PER_GAME_DAY = 400000 / 338 
 DB_FILE = "calendar_data.json"
 
 # --- ЛОГИКА ---
